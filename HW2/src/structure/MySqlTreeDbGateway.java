@@ -29,29 +29,49 @@ public class MySqlTreeDbGateway implements ITreeDbGateway {
      * Reads all rows belonging to treeName.
      * Tree will then reconstruct node objects and connect left/right pointers.
      */
+    /**
+     * Retrieves all node records for a specific tree from the database.
+     * * Documentation (as per Lab requirements):
+     * - Functionality: Queries the 'tree' table for all rows matching the given treeName.
+     * - Input: The name of the tree (String).
+     * - Expected Result: A list of TreeRow objects containing nodeName, weight, 
+     * and pointers (leftp, rightp).
+     * * Refactoring Note: 
+     * Replaced original Statement with PreparedStatement for security (Lec 04/10).
+     * * @param treeName The name of the tree to retrieve.
+     * @return A list of TreeRow objects representing the tree nodes.
+     * @throws Exception if a database access error occurs.
+     */
     @Override
     public List<TreeRow> selectTreeRows(String treeName) throws Exception {
         List<TreeRow> rows = new ArrayList<>();
 
-        // Load MySQL driver (kept similar to original code behavior).
-        Class.forName("com.mysql.cj.jdbc.Driver").newInstance();
+        // 1. Load the MySQL JDBC Driver
+        Class.forName("com.mysql.cj.jdbc.Driver");
 
+        // 2. SQL Query definition (Parameterized to prevent SQL Injection)
+        String query = "SELECT treeName, nodeName, weight, leftp, rightp FROM tree WHERE treeName = ?";
+
+        // 3. Try-with-resources for automatic resource management
         try (Connection connection = DriverManager.getConnection(url, user, pass);
-             Statement statement = connection.createStatement();
-             ResultSet rs = statement.executeQuery(
-                     "SELECT * FROM world.tree WHERE tree.treeName = '" + treeName + "';")) {
-
-            while (rs.next()) {
-                rows.add(new TreeRow(
-                        rs.getString("treeName"),
-                        rs.getString("nodename"),
-                        rs.getInt("weight"),
-                        rs.getString("leftp"),
-                        rs.getString("rightp")
-                ));
+             PreparedStatement pstmt = connection.prepareStatement(query)) {
+            
+            // 4. Bind the treeName parameter to the query
+            pstmt.setString(1, treeName);
+            
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    // 5. Mapping database columns to the TreeRow DTO
+                    rows.add(new TreeRow(
+                            rs.getString("treeName"),
+                            rs.getString("nodeName"),
+                            rs.getInt("weight"),
+                            rs.getString("leftp"),
+                            rs.getString("rightp")
+                    ));
+                }
             }
         }
-
         return rows;
     }
 

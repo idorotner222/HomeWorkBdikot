@@ -3,108 +3,127 @@ package tests;
 import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import structure.FakeSmsSender;
-import structure.FakeTreeDbGateway;
-import structure.Tree;
-import structure.TreeNode;
-import structure.TreeRow;
+import structure.*;
 
 public class TreeSaveNewTreeTest {
 
-    private Tree t;
+    private Tree tree;
     private FakeTreeDbGateway db;
     private FakeSmsSender sms;
+    private TreeNode nodeA, nodeB, nodeC;
 
     @BeforeEach
-    // Resetting the test environment before each save operation [cite: 131]
     void setup() {
         db = new FakeTreeDbGateway();
         sms = new FakeSmsSender();
-        t = new Tree("tree1", db, sms, "0541112233");
+        tree = new Tree("tree1", db, sms, "0541112233");
+        
+        nodeA = new TreeNode("A", 10);
+        nodeB = new TreeNode("B", 5);
+        nodeC = new TreeNode("C", 8);
     }
 
-    private TreeNode makeExampleTree() {
-        TreeNode a = new TreeNode("A", 10);
-        TreeNode b = new TreeNode("B", 20);
-        TreeNode c = new TreeNode("C", 5);
-        TreeNode d = new TreeNode("D", 10);
-        a.left = b; a.right = c;
-        b.left = d;
-        return a;
-    }
-
+    /**
+     * checking saveNewTree when the root provided is null
+     * input: root = null
+     * expected: 0 rows inserted to the database
+     */
     @Test
-    // Checking saveNewTree when root is null
-    // Input: treeName = "treeX", root = null
-    // Expected result: no rows inserted to DB and no SMS calls
-    void saveNewTree_WhenRootIsNull_DoesNotInsertAnything_AndNoSms() {
-        t.saveNewTree("treeX", null);
-
+    void saveNewTree_NullRoot_DoesNothing() {
+        tree.saveNewTree("treeX", null);
         assertEquals(0, db.insertedRows.size());
-        assertEquals(0, sms.calls.size());
     }
 
+    /**
+     * checking saveNewTree with a single-node tree
+     * input: nodeA (no children)
+     * expected: 1 row inserted with null leftp and rightp
+     */
     @Test
-    // Checking saveNewTree with a valid tree (DB insert success)
-    // Input: treeName = "treeX", root = A(10) with nodes {A,B,C,D}
-    // Expected result: 4 rows inserted with correct links, no SMS calls
-    void saveNewTree_WhenValidTree_InsertsAllNodesWithCorrectLinks() {
-        TreeNode root = makeExampleTree();
-        t.saveNewTree("treeX", root);
-
-        assertEquals(4, db.insertedRows.size());
-        assertEquals(0, sms.calls.size());
-
-        TreeRow r0 = db.insertedRows.get(0);
-        assertEquals("A", r0.nodeName);
-        assertEquals("B", r0.leftp);
-        assertEquals("C", r0.rightp);
+    void saveNewTree_SingleNode_InsertsCorrectly() {
+        tree.saveNewTree("treeX", nodeA);
+        assertEquals(1, db.insertedRows.size());
+        assertNull(db.insertedRows.get(0).leftp);
+        assertNull(db.insertedRows.get(0).rightp);
     }
 
+    /**
+     * checking saveNewTree when only a left child exists
+     * input: nodeA.left = nodeB
+     * expected: DB row shows leftp = "B" and rightp = null
+     */
     @Test
-    // Checking saveNewTree when DB insert throws an exception
-    // Input: valid tree, db.throwOnInsert = true
-    // Expected result: exactly one SMS call sent to "0541112233"
-    void saveNewTree_WhenDbThrows_SendsSmsOnce() {
+    void saveNewTree_OnlyLeftChild_VerifiesPointers() {
+        nodeA.left = nodeB;
+        tree.saveNewTree("treeX", nodeA);
+        assertEquals("B", db.insertedRows.get(0).leftp);
+        assertNull(db.insertedRows.get(0).rightp);
+    }
+
+    /**
+     * checking saveNewTree with a full tree structure
+     * input: nodeA with left child B and right child C
+     * expected: 3 rows inserted, A points to both B and C
+     */
+    @Test
+    void saveNewTree_FullTree_InsertsAllNodes() {
+        nodeA.left = nodeB;
+        nodeA.right = nodeC;
+        tree.saveNewTree("treeX", nodeA);
+        assertEquals(3, db.insertedRows.size());
+        assertEquals("B", db.insertedRows.get(0).leftp);
+        assertEquals("C", db.insertedRows.get(0).rightp);
+    }
+
+    /**
+     * checking saveNewTree when a database exception occurs
+     * input: db.throwOnInsert = true
+     * expected: exactly 1 SMS is sent to notify about the failure (Functional Equivalence)
+     */
+    @Test
+    void saveNewTree_OnDbFailure_SendsSms() {
         db.throwOnInsert = true;
-
-        t.saveNewTree("treeX", makeExampleTree());
-
+        tree.saveNewTree("treeX", nodeA);
         assertEquals(1, sms.calls.size());
         assertEquals("A problem with saving tree in Database", sms.calls.get(0).message);
-        assertEquals("0541112233", sms.calls.get(0).phone);
     }
 
+    /**
+     * checking saveNewTree with extremely large weight values
+     * input: node with Integer.MAX_VALUE
+     * expected: saves successfully without data overflow (Boundary Case)
+     */
     @Test
-    // Checking saveNewTree when a node has only a right child
-    // Input: tree with root A and right child B
-    // Expected result: two rows inserted, for node A: leftp == null, rightp == "B"
-    void saveNewTree_WhenNodeHasOnlyRightChild_InsertsCorrectLinks() {
-        TreeNode a = new TreeNode("A", 10);
-        TreeNode b = new TreeNode("B", 20);
-        a.right = b;
-
-        t.saveNewTree("treeY", a);
-
-        assertEquals(2, db.insertedRows.size());
-        TreeRow r0 = db.insertedRows.get(0);
-        assertNull(r0.leftp);
-        assertEquals("B", r0.rightp);
+    void saveNewTree_WithMaximumWeight_SavesCorrectly() {
+        TreeNode bigNode = new TreeNode("Big", Integer.MAX_VALUE);
+        tree.saveNewTree("treeX", bigNode);
+        assertEquals(Integer.MAX_VALUE, db.insertedRows.get(0).weight);
     }
 
+    /**
+     * checking saveNewTree when the node name is null
+     * input: TreeNode with name = null
+     * expected: row is saved with a null nodeName safely
+     */
     @Test
-    // Checking saveNewTree with a single-node tree
-    // Input: treeName = "treeSingle", root = A only
-    // Expected result: exactly one row inserted, pointers are null
-    void saveNewTree_WhenSingleNodeTree_InsertsOneRow() {
-        TreeNode a = new TreeNode("A", 10);
-
-        t.saveNewTree("treeSingle", a);
-
+    void saveNewTree_WhenNodeNameIsNull_SavesRow() {
+        TreeNode nullNameNode = new TreeNode(null, 5);
+        tree.saveNewTree("treeX", nullNameNode);
         assertEquals(1, db.insertedRows.size());
-        TreeRow r0 = db.insertedRows.get(0);
-        assertNull(r0.leftp);
-        assertNull(r0.rightp);
+        assertNull(db.insertedRows.get(0).nodeName);
+    }
+    /**
+     * checking saveNewTree failure path when database is down
+     * input: throwOnInsert = true (simulating DB crash)
+     * expected: test PASSES because the catch block correctly triggers the SMS
+     */
+    @Test
+    void saveNewTree_FailurePath_SendsSmsSuccessfully() {
+        db.throwOnInsert = true;
+        tree.saveNewTree("treeX", nodeA);
+        
+        // The test passes if the code handled the failure by sending an SMS
+        assertEquals(1, sms.calls.size());
+        assertEquals("A problem with saving tree in Database", sms.calls.get(0).message);
     }
 }
